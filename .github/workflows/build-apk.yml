@@ -1,0 +1,84 @@
+name: SMART SCHOOL ZONE - APK Builder
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install unzip
+        run: sudo apt-get update && sudo apt-get install -y unzip
+
+      - name: Extract project ZIP
+        run: |
+          ZIP_FILE=$(find . -maxdepth 1 -type f -iname "*.zip" | head -n 1)
+
+          if [ -z "$ZIP_FILE" ]; then
+            echo "ERROR: No ZIP file found"
+            exit 1
+          fi
+
+          mkdir -p source
+          unzip -o "$ZIP_FILE" -d source
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Locate Flutter project
+        shell: bash
+        run: |
+          PUBSPEC=$(find source -type f -name pubspec.yaml -print -quit)
+
+          if [ -z "$PUBSPEC" ]; then
+            echo "ERROR: Flutter pubspec.yaml not found"
+            find source -maxdepth 4 -type f | head -200
+            exit 1
+          fi
+
+          APP_DIR=$(dirname "$PUBSPEC")
+          echo "APP_DIR=$APP_DIR" >> "$GITHUB_ENV"
+          echo "Found project: $APP_DIR"
+
+      - name: Fix intl dependency
+        working-directory: ${{ env.APP_DIR }}
+        run: flutter pub add 'intl:^0.20.3'
+
+      - name: Prepare Android
+        working-directory: ${{ env.APP_DIR }}
+        run: |
+          if [ ! -d android ]; then
+            flutter create . --platforms=android
+          fi
+
+      - name: Install dependencies
+        working-directory: ${{ env.APP_DIR }}
+        run: flutter pub get
+
+      - name: Build Release APK
+        working-directory: ${{ env.APP_DIR }}
+        run: flutter build apk --release
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: SMART-SCHOOL-ZONE-APK
+          path: ${{ env.APP_DIR }}/build/app/outputs/flutter-apk/app-release.apk
+          if-no-files-found: error
+          retention-days: 7
